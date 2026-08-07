@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# datasets / images
+dataset/
+datasets/
+data/
+*.jpg
+*.jpeg
+*.png
+!public/**/*.png
+
+# model checkpoints / weights (keep public/asl_model — that's the deployed tfjs model)
+*.h5
+*.tflite
+*.pb
+*.ckpt
+checkpoints/
+saved_model/
+
+# build output
+dist/
+build/
+
+# misc
+.DS_Store
+.vercel
