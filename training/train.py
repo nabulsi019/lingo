@@ -7,7 +7,7 @@ import cv2
 import mediapipe as mp
 import tensorflow as tf
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, confusion_matrix
 
 # Initialize MediaPipe
 mp_hands = mp.solutions.hands
@@ -20,6 +20,7 @@ hands = mp_hands.Hands(
 DATA_DIR = os.path.expanduser('~/Desktop/mylingo-ml/data/asl_alphabet_train/asl_alphabet_train')
 OUTPUT_DIR = os.path.expanduser('~/Desktop/mylingo-ml/model')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+RESULTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.json')
 
 # J and Z require motion and cannot be classified from a single frame
 LETTERS = [chr(i) for i in range(ord('A'), ord('Z') + 1) if chr(i) not in ('J', 'Z')]
@@ -85,6 +86,7 @@ X_train, y_train_labels = [], []
 X_val, y_val_labels = [], []
 X_test, y_test_labels = [], []
 skipped = 0
+image_counts = {}
 
 for letter in LETTERS:
     folder = os.path.join(DATA_DIR, letter)
@@ -105,23 +107,30 @@ for letter in LETTERS:
     print(f"Processing {letter}: {len(images)} images "
           f"({train_end} train / {val_end - train_end} val / {len(images) - val_end} test)")
 
+    counts = {'images': len(images), 'train': 0, 'val': 0, 'test': 0, 'skipped': 0}
     for i, img_file in enumerate(images):
         row = extract_landmarks(os.path.join(folder, img_file))
         if row is None:
             skipped += 1
+            counts['skipped'] += 1
             continue
         if i < train_end:
             X_train.append(row)
             y_train_labels.append(letter)
+            counts['train'] += 1
         elif i < val_end:
             X_val.append(row)
             y_val_labels.append(letter)
+            counts['val'] += 1
         else:
             X_test.append(row)
             y_test_labels.append(letter)
+            counts['test'] += 1
+    image_counts[letter] = counts
 
 print(f"Train samples: {len(X_train)}, Val samples: {len(X_val)}, "
       f"Test samples: {len(X_test)}, Skipped: {skipped}")
+train_before_augmentation = len(X_train)
 
 # Augment the training set only
 print("Augmenting training set...")
@@ -141,11 +150,9 @@ y_train = tf.keras.utils.to_categorical(le.transform(y_train_labels), num_classe
 y_val = tf.keras.utils.to_categorical(le.transform(y_val_labels), num_classes=len(le.classes_))
 y_test = tf.keras.utils.to_categorical(le.transform(y_test_labels), num_classes=len(le.classes_))
 
-# Save label mapping
+# Label mapping — written next to the model at the end so the pair can't drift
 label_map = {str(i): label for i, label in enumerate(le.classes_)}
-with open(os.path.join(OUTPUT_DIR, 'labels.json'), 'w') as f:
-    json.dump(label_map, f)
-print("Label map saved:", label_map)
+print("Label map:", label_map)
 
 X_train = np.array(X_train)
 X_val = np.array(X_val)
@@ -194,7 +201,13 @@ print(f"Test accuracy: {accuracy:.4f}")
 
 y_pred = np.argmax(model.predict(X_test, verbose=0), axis=1)
 y_true = np.argmax(y_test, axis=1)
-print(classification_report(y_true, y_pred, target_names=list(le.classes_), digits=4))
+labels_idx = list(range(len(le.classes_)))
+print(classification_report(y_true, y_pred, labels=labels_idx,
+                            target_names=list(le.classes_), digits=4, zero_division=0))
+report = classification_report(y_true, y_pred, labels=labels_idx,
+                               target_names=list(le.classes_), digits=4,
+                               zero_division=0, output_dict=True)
+cm = confusion_matrix(y_true, y_pred, labels=labels_idx)
 
 # Save model
 model.save(os.path.join(OUTPUT_DIR, 'asl_model'))
@@ -211,4 +224,35 @@ subprocess.run([
     tfjs_output
 ], check=True)
 print(f"TensorFlow.js model saved to {tfjs_output}")
+
+# Write labels.json alongside the model it belongs to (and at the old location)
+for labels_path in (os.path.join(tfjs_output, 'labels.json'),
+                    os.path.join(OUTPUT_DIR, 'labels.json')):
+    with open(labels_path, 'w') as f:
+        json.dump(label_map, f)
+    print(f"Labels saved to {labels_path}")
+
+results = {
+    'test_accuracy': float(accuracy),
+    'test_loss': float(loss),
+    'epochs_run': len(history.history['loss']),
+    'classes': list(le.classes_),
+    'num_classes': len(le.classes_),
+    'image_counts': {
+        'images_per_letter_cap': IMAGES_PER_LETTER,
+        'images_used': sum(c['images'] for c in image_counts.values()),
+        'train_before_augmentation': train_before_augmentation,
+        'train_after_augmentation': len(X_train),
+        'val': len(X_val),
+        'test': len(X_test),
+        'skipped_no_hand': skipped,
+        'per_class': image_counts,
+    },
+    'classification_report': report,
+    # rows = true letter, columns = predicted letter, both in 'classes' order
+    'confusion_matrix': cm.tolist(),
+}
+with open(RESULTS_PATH, 'w') as f:
+    json.dump(results, f, indent=2)
+print(f"Results saved to {RESULTS_PATH}")
 print("Done! Model ready for MyLingo.")

@@ -56,9 +56,6 @@ export function classifyASL(landmarks, threshold = 0.7) {
     }
   }
 
-  // TEMP: debug log — fires on every classification, remove after browser testing
-  console.log('ASL:', labelMap[String(bestIdx)], bestScore.toFixed(2))
-
   if (bestScore < threshold) return null
   return { letter: labelMap[String(bestIdx)], score: bestScore }
 }

@@ -11,11 +11,11 @@ Browser-based real-time sign language recognition app. No backend — everything
 
 ## Three-tier classifier
 
-Live hand landmarks are passed through three classifiers in priority order:
+Live hand landmarks are passed through three classifiers in priority order (`src/App.jsx`); the first tier that matches returns, and later tiers are skipped for that frame:
 
-1. **Google GestureRecognizer** — built-in common gestures
+1. **ASL alphabet model** (`src/logic/aslClassifier.js`) — TensorFlow.js model trained by `~/Desktop/mylingo-ml/train.py` on the Kaggle ASL alphabet dataset. 24 classes (A–Z minus J and Z, which require motion and cannot be classified from a single frame). Wins whenever its top score is ≥ 0.85
 2. **Custom gestures** (`src/logic/customGestureManager.js`) — user-recorded gestures matched by nearest-neighbor distance on normalized 2D landmarks, stored in localStorage
-3. **ASL alphabet model** (`src/logic/aslClassifier.js`) — TensorFlow.js model trained by `~/Desktop/mylingo-ml/train.py` on the Kaggle ASL alphabet dataset. 24 classes (A–Z minus J and Z, which require motion and cannot be classified from a single frame)
+3. **Google GestureRecognizer** — built-in common gestures, only consulted when neither tier above matched
 
 ## CRITICAL: normalization must stay in sync
 
